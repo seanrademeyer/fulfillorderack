@@ -13,6 +13,7 @@ import (
 	"github.com/Microsoft/ApplicationInsights-Go/appinsights"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/matryer/try.v1"
 )
 
 var (
@@ -164,15 +165,27 @@ func ProcessOrderInMongoDB(order Order) (orderId string) {
 		log.Println("Not found (already processed) or error: ", err)
 	} else {
 
-		log.Println("set status: Processed")
-
 		change := bson.M{"$set": bson.M{"status": "Processed"}}
-		err = mongoDBCollection.Update(result, change)
+
+		// Try updating the record, with retry logic
+		err := try.Do(func(attempt int) (bool, error) {
+			var err error
+		
+			err = mongoDBCollection.Update(result, change)
+	
+			if err != nil {
+				log.Println("Error processingrecord. Will retry in 3 seconds:", err)
+				  time.Sleep(3 * time.Second) // wait
+			} else {
+				log.Println("set status: Processed")
+			}
+			return attempt < 3, err
+		  })
+		  
 		if err != nil {
-			log.Fatal("Error updating record: ", err)
+			log.Println("Error updating record after retrying 3 times: ", err)
 			return
 		}
-
 	}
 
 
