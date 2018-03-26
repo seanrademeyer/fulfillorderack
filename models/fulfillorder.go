@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"strconv"
 
 	"github.com/Microsoft/ApplicationInsights-Go/appinsights"
 	"gopkg.in/mgo.v2"
@@ -32,7 +33,7 @@ var isCosmosDb = strings.Contains(mongoURL, "documents.azure.com")
 // MongoDB database and collection names
 var mongoDatabaseName = "k8orders"
 var mongoCollectionName = "orders"
-var mongoDBSessionCopy *mgo.Session
+var mongoDBSession *mgo.Session
 var mongoDBSessionError error
 var mongoPoolLimit = 50
 
@@ -159,12 +160,12 @@ func init() {
 func ProcessOrderInMongoDB(order Order) (orderId string) {
 	log.Println("ProcessOrderInMongoDB: " + order.OrderID)
 
-	mongoDBSessionCopy = mongoDBSession.Copy()
+	mongoDBSessionCopy := mongoDBSession.Copy()
 	defer mongoDBSessionCopy.Close()
 
 	// Get collection
 	log.Println("Getting collection: " + mongoCollectionName + " in database: " + mongoDatabaseName)
-	mongoDBCollection = mongoDBSessionCopy.DB(mongoDatabaseName).C(mongoCollectionName)
+	mongoDBCollection := mongoDBSessionCopy.DB(mongoDatabaseName).C(mongoCollectionName)
 
 	// Get Document from collection
 	result := Order{}
