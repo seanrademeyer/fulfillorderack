@@ -35,7 +35,7 @@ var mongoDatabaseName = "k8orders"
 var mongoCollectionName = "orders"
 var mongoDBSession *mgo.Session
 var mongoDBSessionError error
-var mongoPoolLimit = 50
+var mongoPoolLimit = 25
 
 
 var challengeTelemetryClient appinsights.TelemetryClient
