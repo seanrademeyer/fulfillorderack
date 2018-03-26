@@ -9,10 +9,12 @@ import (
 	"os"
 	"strings"
 	"time"
+	"strconv"
 
 	"github.com/Microsoft/ApplicationInsights-Go/appinsights"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/matryer/try.v1"
 )
 
 var (
@@ -31,10 +33,10 @@ var isCosmosDb = strings.Contains(mongoURL, "documents.azure.com")
 // MongoDB database and collection names
 var mongoDatabaseName = "k8orders"
 var mongoCollectionName = "orders"
-var mongoDBSessionCopy *mgo.Session
 var mongoDBSession *mgo.Session
-var mongoDBCollection *mgo.Collection
 var mongoDBSessionError error
+var mongoPoolLimit = 25
+
 
 var challengeTelemetryClient appinsights.TelemetryClient
 
@@ -67,6 +69,15 @@ func init() {
 	} else {
 		log.Print("The environment variable TEAMNAME is " + os.Getenv("TEAMNAME"))
 	}
+
+	var mongoPoolLimitEnv = os.Getenv("MONGOPOOL_LIMIT")
+	if mongoPoolLimitEnv != "" {
+		if limit, err := strconv.Atoi(mongoPoolLimitEnv); err == nil {
+			mongoPoolLimit = limit
+		}
+	}
+	log.Printf("MongoDB pool limit set to %v. You can override by setting the MONGOPOOL_LIMIT environment variable." , mongoPoolLimit)
+	
 
 
 	url, err := url.Parse(mongoURL)
@@ -140,19 +151,21 @@ func init() {
 	// http://godoc.org/labix.org/v2/mgo#Session.SetMode.
 	mongoDBSession.SetSafe(nil)
 
+	mongoDBSession.SetMode(mgo.Monotonic, true)
 
+	// Limit connection pool to avoid running into Request Rate Too Large on CosmosDB
+	mongoDBSession.SetPoolLimit(mongoPoolLimit)
 }
 
 func ProcessOrderInMongoDB(order Order) (orderId string) {
 	log.Println("ProcessOrderInMongoDB: " + order.OrderID)
 
-	mongoDBSessionCopy = mongoDBSession.Copy()
+	mongoDBSessionCopy := mongoDBSession.Copy()
 	defer mongoDBSessionCopy.Close()
 
 	// Get collection
 	log.Println("Getting collection: " + mongoCollectionName + " in database: " + mongoDatabaseName)
-	mongoDBCollection = mongoDBSessionCopy.DB(mongoDatabaseName).C(mongoCollectionName)
-	defer mongoDBSessionCopy.Close()
+	mongoDBCollection := mongoDBSessionCopy.DB(mongoDatabaseName).C(mongoCollectionName)
 
 	// Get Document from collection
 	result := Order{}
@@ -164,15 +177,27 @@ func ProcessOrderInMongoDB(order Order) (orderId string) {
 		log.Println("Not found (already processed) or error: ", err)
 	} else {
 
-		log.Println("set status: Processed")
-
 		change := bson.M{"$set": bson.M{"status": "Processed"}}
-		err = mongoDBCollection.Update(result, change)
+
+		// Try updating the record, with retry logic
+		err := try.Do(func(attempt int) (bool, error) {
+			var err error
+		
+			err = mongoDBCollection.Update(result, change)
+	
+			if err != nil {
+				log.Println("Error processingrecord. Will retry in 3 seconds:", err)
+				  time.Sleep(3 * time.Second) // wait
+			} else {
+				log.Println("set status: Processed")
+			}
+			return attempt < 3, err
+		  })
+		  
 		if err != nil {
-			log.Fatal("Error updating record: ", err)
+			log.Println("Error updating record after retrying 3 times: ", err)
 			return
 		}
-
 	}
 
 
