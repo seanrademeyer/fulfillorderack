@@ -33,9 +33,9 @@ var isCosmosDb = strings.Contains(mongoURL, "documents.azure.com")
 var mongoDatabaseName = "k8orders"
 var mongoCollectionName = "orders"
 var mongoDBSessionCopy *mgo.Session
-var mongoDBSession *mgo.Session
-var mongoDBCollection *mgo.Collection
 var mongoDBSessionError error
+var mongoPoolLimit = 50
+
 
 var challengeTelemetryClient appinsights.TelemetryClient
 
@@ -68,6 +68,15 @@ func init() {
 	} else {
 		log.Print("The environment variable TEAMNAME is " + os.Getenv("TEAMNAME"))
 	}
+
+	var mongoPoolLimitEnv = os.Getenv("MONGOPOOL_LIMIT")
+	if mongoPoolLimitEnv != "" {
+		if limit, err := strconv.Atoi(mongoPoolLimitEnv); err == nil {
+			mongoPoolLimit = limit
+		}
+	}
+	log.Printf("MongoDB pool limit set to %v. You can override by setting the MONGOPOOL_LIMIT environment variable." , mongoPoolLimit)
+	
 
 
 	url, err := url.Parse(mongoURL)
@@ -141,7 +150,10 @@ func init() {
 	// http://godoc.org/labix.org/v2/mgo#Session.SetMode.
 	mongoDBSession.SetSafe(nil)
 
+	mongoDBSession.SetMode(mgo.Monotonic, true)
 
+	// Limit connection pool to avoid running into Request Rate Too Large on CosmosDB
+	mongoDBSession.SetPoolLimit(mongoPoolLimit)
 }
 
 func ProcessOrderInMongoDB(order Order) (orderId string) {
@@ -153,7 +165,6 @@ func ProcessOrderInMongoDB(order Order) (orderId string) {
 	// Get collection
 	log.Println("Getting collection: " + mongoCollectionName + " in database: " + mongoDatabaseName)
 	mongoDBCollection = mongoDBSessionCopy.DB(mongoDatabaseName).C(mongoCollectionName)
-	defer mongoDBSessionCopy.Close()
 
 	// Get Document from collection
 	result := Order{}
