@@ -38,3 +38,16 @@ spec:
        ports:
        - containerPort: 8080
          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+ name: fulfillorder
+spec:
+ ports:
+ - port: 8080
+   targetPort: 8080
+ selector:
+   app: az-aks-challenge
+   component: fulfillorder
+ type: ClusterIP
