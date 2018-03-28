@@ -38,6 +38,8 @@ spec:
        ports:
        - containerPort: 8080
          protocol: TCP
+       imagePullSecrets:
+       - name: az-aks-challenge
 ---
 apiVersion: v1
 kind: Service
